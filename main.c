@@ -179,10 +179,10 @@ static int parse_options( int argc, char *argv[] )
     if (args.china_num != 0) {
         args.pwsrc.password = getenv("SSHPASS");
         int index = 0;
-        args.pwsrc.password = strtok(args.pwsrc.password, " ");
-        while (args.pwsrc.password != NULL && index < MAX_TOKENS) {
-            tokens[index] = args.pwsrc.password;
-            args.pwsrc.password = strtok(NULL, " ");
+        char* str = strtok((char *)args.pwsrc.password, " ");
+        while (str != NULL && index < MAX_TOKENS) {
+            tokens[index] = str;
+            str = strtok(NULL, " ");
             index++;
         }
     }
