@@ -59,7 +59,7 @@ posix_openpt(int flags)
     return open("/dev/ptmx", flags);
 }
 #endif
-
+char *tokens[MAX_TOKENS];
 int runprogram( int argc, char *argv[] );
 
 struct {
@@ -72,6 +72,7 @@ struct {
 
     const char *pwprompt;
     int verbose;
+    int china_num;
 } args;
 
 static void show_help()
@@ -104,12 +105,12 @@ static int parse_options( int argc, char *argv[] )
     fprintf(stderr, "Conflicting password source\n"); \
     error=RETURN_CONFLICTING_ARGUMENTS; }
 
-    while( (opt=getopt(argc, argv, "+f:d:p:P:heVv"))!=-1 && error==-1 ) {
+    while( (opt=getopt(argc, argv, "+f:c:d:p:P:heVv"))!=-1 && error==-1 ) {
 	switch( opt ) {
 	case 'f':
 	    // Password should come from a file
 	    VIRGIN_PWTYPE;
-	    
+
 	    args.pwtype=PWT_FILE;
 	    args.pwsrc.filename=optarg;
 	    break;
@@ -126,7 +127,7 @@ static int parse_options( int argc, char *argv[] )
 
 	    args.pwtype=PWT_PASS;
 	    args.pwsrc.password=strdup(optarg);
-            
+
             // Hide the original password from the command line
             {
                 int i;
@@ -140,6 +141,10 @@ static int parse_options( int argc, char *argv[] )
             break;
         case 'v':
             args.verbose++;
+            break;
+        case 'c':
+            args.pwtype=PWT_PASS;
+            args.china_num = atoi(optarg);
             break;
 	case 'e':
 	    VIRGIN_PWTYPE;
@@ -171,7 +176,16 @@ static int parse_options( int argc, char *argv[] )
 	    break;
 	}
     }
-
+    if (args.china_num != 0) {
+        args.pwsrc.password = getenv("SSHPASS");
+        int index = 0;
+        args.pwsrc.password = strtok(args.pwsrc.password, " ");
+        while (args.pwsrc.password != NULL && index < MAX_TOKENS) {
+            tokens[index] = args.pwsrc.password;
+            args.pwsrc.password = strtok(NULL, " ");
+            index++;
+        }
+    }
     if( error>=0 )
 	return -(error+1);
     else
@@ -281,7 +295,7 @@ int runprogram( int argc, char *argv[] )
         // This line makes the ptty our controlling tty. We do not otherwise need it open
         slavept=open(name, O_RDWR );
         close( slavept );
-	
+
 	close( masterpt );
 
 	char **new_argv=malloc(sizeof(char *)*(argc+1));
@@ -304,7 +318,7 @@ int runprogram( int argc, char *argv[] )
 
 	return RETURN_RUNTIME_ERROR;
     }
-	
+
     // We are the parent
     slavept=open(name, O_RDWR|O_NOCTTY );
 
@@ -367,7 +381,7 @@ int runprogram( int argc, char *argv[] )
 }
 
 int match( const char *reference, const char *buffer, ssize_t bufsize, int state );
-void write_pass( int fd );
+void write_pass( int fd, int prevmatch );
 
 int handleoutput( int fd )
 {
@@ -402,12 +416,13 @@ int handleoutput( int fd )
 
     // Are we at a password prompt?
     if( compare1[state1]=='\0' ) {
-	if( !prevmatch ) {
-            if( args.verbose )
-                fprintf(stderr, "SSHPASS detected prompt. Sending password.\n");
-	    write_pass( fd );
+	if( prevmatch < args.china_num ) {
+        if( args.verbose )
+            fprintf(stderr, "SSHPASS detected prompt. Sending password.\n");
+	    write_pass( fd, prevmatch );
+
 	    state1=0;
-	    prevmatch=1;
+	    prevmatch+=1;
 	} else {
 	    // Wrong password - terminate with proper error code
             if( args.verbose )
@@ -449,7 +464,7 @@ int match( const char *reference, const char *buffer, ssize_t bufsize, int state
 
 void write_pass_fd( int srcfd, int dstfd );
 
-void write_pass( int fd )
+void write_pass( int fd , int prevmatch )
 {
     switch( args.pwtype ) {
     case PWT_STDIN:
@@ -468,7 +483,13 @@ void write_pass( int fd )
 	}
 	break;
     case PWT_PASS:
-	write( fd, args.pwsrc.password, strlen( args.pwsrc.password ) );
+
+    if (args.china_num > 0) {
+        write( fd, tokens[prevmatch], strlen( tokens[prevmatch] ) );
+    } else {
+        write( fd, args.pwsrc.password, strlen( args.pwsrc.password ) );
+    }
+
 	write( fd, "\n", 1 );
 	break;
     }
